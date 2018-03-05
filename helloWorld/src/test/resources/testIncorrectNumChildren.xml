@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tns:helloWorld xmlns:tns="http://example.com/dfdl/helloworld/">
+  <word>Hello</word>
+  <word>world!</word>
+  <word>It's Friday!!!</word>
+</tns:helloWorld>

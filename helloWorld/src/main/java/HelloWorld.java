@@ -1,9 +1,19 @@
 
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+
+import javax.xml.XMLConstants;
+import javax.xml.transform.stream.StreamSource;
+import javax.xml.validation.Schema;
+import javax.xml.validation.SchemaFactory;
+import javax.xml.validation.Validator;
 
 import org.jdom2.Content;
 import org.jdom2.Document;
@@ -14,22 +24,30 @@ import org.jdom2.transform.XSLTransformException;
 import org.jdom2.transform.XSLTransformer;
 import org.jdom2.xpath.XPathExpression;
 import org.jdom2.xpath.XPathFactory;
+import org.xml.sax.SAXException;
 
-import org.apache.daffodil.japi.Compiler;
-import org.apache.daffodil.japi.Daffodil;
-import org.apache.daffodil.japi.DataProcessor;
-import org.apache.daffodil.japi.Diagnostic;
-import org.apache.daffodil.japi.ParseResult;
-import org.apache.daffodil.japi.ProcessorFactory;
-import org.apache.daffodil.japi.UnparseResult;
-import org.apache.daffodil.japi.infoset.JDOMInfosetInputter;
-import org.apache.daffodil.japi.infoset.JDOMInfosetOutputter;
+import com.helger.schematron.ISchematronResource;
+import com.helger.schematron.pure.SchematronResourcePure;
+
+import edu.illinois.ncsa.daffodil.japi.Compiler;
+import edu.illinois.ncsa.daffodil.japi.Daffodil;
+import edu.illinois.ncsa.daffodil.japi.DataProcessor;
+import edu.illinois.ncsa.daffodil.japi.Diagnostic;
+import edu.illinois.ncsa.daffodil.japi.ParseResult;
+import edu.illinois.ncsa.daffodil.japi.ProcessorFactory;
+import edu.illinois.ncsa.daffodil.japi.UnparseResult;
+import edu.illinois.ncsa.daffodil.japi.infoset.JDOMInfosetInputter;
+import edu.illinois.ncsa.daffodil.japi.infoset.JDOMInfosetOutputter;
+
+
 
 /**
  * Demonstrates using the Daffodil DFDL processor to
  * <ul>
  * <li>compile a DFDL schema
  * <li>parse non-XML data into XML,
+ * <li>perform xsd validation,
+ * <li>perform schematron validation,
  * <li>access the data it using XPath,
  * <li>transform the data using XSLT
  * <li>unparse the transformed data back to non-XML form.
@@ -37,13 +55,15 @@ import org.apache.daffodil.japi.infoset.JDOMInfosetOutputter;
  */
 public class HelloWorld {
 
-	public static void main(String[] args) throws IOException, XSLTransformException {
+	public static void main(String[] args) throws IOException, XSLTransformException,Exception {
 
 		String rootDir = "./";
 		String testDir = rootDir
 				+ "src/test/resources/";
-		String schemaFilePath = testDir + "helloWorld.dfdl.xsd";
-		String dataFilePath = testDir + "helloWorld.dat";
+		String schemaDefFilePath = testDir + "helloWorld.dfdl.xsd";
+		String dataFilePath = testDir + "helloWorld.dat"; 
+		String XMLFilePath = testDir + "helloWorld.xml";
+		String schematronFilePath = testDir +"helloWorld.sch";
 
 		//
 		// First compile the DFDL Schema
@@ -51,8 +71,8 @@ public class HelloWorld {
 		Compiler c = Daffodil.compiler();
 		c.setValidateDFDLSchemas(true); // makes sure the DFDL schema is valid
 										// itself.
-		File schemaFile = new File(schemaFilePath);
-		ProcessorFactory pf = c.compileFile(schemaFile);
+		File schemaDefFile = new File(schemaDefFilePath);
+		ProcessorFactory pf = c.compileFile(schemaDefFile);
 		if (pf.isError()) {
 			// didn't compile schema. Must be diagnostic of some sort. 
 			List<Diagnostic> diags = pf.getDiagnostics();
@@ -109,7 +129,35 @@ public class HelloWorld {
 		//
 		XMLOutputter xo = new XMLOutputter(org.jdom2.output.Format.getPrettyFormat());
 		xo.output(doc, System.out);
-
+		
+		try {
+		    Writer tWriter = new BufferedWriter(new OutputStreamWriter(
+		          new FileOutputStream(XMLFilePath), "utf-8"));
+		    xo.output(doc, tWriter);
+		} catch (Exception aEx) {
+		    aEx.printStackTrace();
+		} 
+		
+		// validating XSD
+		boolean isValid = validateXSD(schemaDefFilePath, XMLFilePath); 
+		System.out.println("***** XSD VALIDATION *****");
+		if(isValid) {
+		    System.out.println(XMLFilePath + " is VALIDATED by " +schemaDefFilePath);
+		}
+		else {
+		    System.out.println(XMLFilePath + " is NOT VALIDATED by " +schemaDefFilePath);
+		}
+		
+		//validate schematron
+		isValid = validateXMLViaPureSchematron(new File(schematronFilePath), new File(XMLFilePath));
+		System.out.println("***** SCHEMATRON VALIDATION *****");
+		if(isValid) {
+		    System.out.println(XMLFilePath + " is VALIDATED by " +schematronFilePath);
+		}
+		else { 
+		    System.out.println(XMLFilePath + " is NOT VALIDATED by " +schematronFilePath);
+		}
+		
 		// If all you need to do is parse things to XML, then that's it.
 
 		//
@@ -137,7 +185,7 @@ public class HelloWorld {
 		XSLTransformer tr = new XSLTransformer(xsltFilePath);
 		Document doc2 = tr.transform(doc);
 		xo.output(doc2, System.out); // display it so we see the change.
-
+	
 		//
 		// Unparse back to native format
 		//
@@ -227,5 +275,44 @@ public class HelloWorld {
 		Map<String, Object> variables = Collections.emptyMap();
 		XPathExpression<Content> xexp = xfactory.compile(xpath, cf, variables, nss);
 		return xexp;
+	}
+	   
+	/**
+	 * checks if an XML file is validated by it's XSD
+	 * 
+	 * @return true or false
+	 */
+	private static boolean validateXSD(String aXSDPath, String aXMLFilePath) {
+        try {
+		    SchemaFactory tFactory = SchemaFactory.newInstance(
+		    		XMLConstants.W3C_XML_SCHEMA_NS_URI);
+		    Schema tSchema = tFactory.newSchema(new File(aXSDPath));
+		    Validator tValidator = tSchema.newValidator();
+		    tValidator.validate(new StreamSource(new File(aXMLFilePath)));
+		} catch (IOException aEx) {
+		    System.out.println("Exception: "+aEx.getMessage());
+		    return false;
+		} catch(SAXException aEx) {
+		    System.out.println("SAX Exception: "+aEx.getMessage());
+		    return false;
+	    }		
+		return true;		
+	}
+	
+	/**
+	 * checks if an XML file is validated by it's schematron
+	 * 
+	 * @return true or false
+	 */
+	private static boolean validateXMLViaPureSchematron (final File aSchematronFile, 
+			final File aXMLFile) throws Exception {
+		
+	    final ISchematronResource aResPure = SchematronResourcePure.fromFile(
+	    		aSchematronFile);
+	    if (!aResPure.isValidSchematron () || !aXMLFile.exists()) {
+	        throw new IllegalArgumentException (
+	        		"Invalid Schematron:" +aSchematronFile.getAbsolutePath());
+	    }
+	    return aResPure.getSchematronValidity(new StreamSource(aXMLFile)).isValid ();
 	}
 }
