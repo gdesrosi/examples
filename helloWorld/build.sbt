@@ -18,7 +18,12 @@ mainClass in (Compile,run) := Some("HelloWorld")
 
 libraryDependencies in ThisBuild := Seq(
   "org.apache.daffodil" %% "daffodil-japi" % "2.1.0",
-  "jaxen" % "jaxen" % "1.1.4"
+  "jaxen" % "jaxen" % "1.1.4",
+  "com.helger" % "ph-commons" % "9.0.1",
+  "com.helger" % "ph-schematron" % "5.0.1",
+  "junit" % "junit" % "4.12" % Test,
+  "com.novocode" % "junit-interface" % "0.11" % Test,
+  "org.slf4j" % "slf4j-nop" % "1.7.13"
 )
 
 // these lines arrange for a lib_managed/ subdirectory
